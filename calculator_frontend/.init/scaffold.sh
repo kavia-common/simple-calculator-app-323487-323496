@@ -3,8 +3,7 @@ set -euo pipefail
 WORKSPACE="/home/kavia/workspace/code-generation/simple-calculator-app-323487-323496/calculator_frontend"
 mkdir -p "$WORKSPACE"
 cd "$WORKSPACE"
-command -v swift >/dev/null 2>&1 || { echo "ERROR: swift not found; run install step" >&2; exit 2; }
-# create Package.swift
+# Ensure swift is available; scaffolding can be created even if swift missing, but build/test will fail then
 cat >Package.swift <<'SWIFT'
 // swift-tools-version:5.9
 import PackageDescription
@@ -21,9 +20,8 @@ let package = Package(
   ]
 )
 SWIFT
-
-# sources
 mkdir -p Sources/Calculator Sources/CalcDemo Tests/CalculatorTests .init
+# Library
 cat >Sources/Calculator/Calculator.swift <<'SW'
 public struct Calculator {
   public init() {}
@@ -33,16 +31,16 @@ public struct Calculator {
   public func div(_ a: Int, _ b: Int) -> Int { a / b }
 }
 SW
-
+# Long-running executable
 cat >Sources/CalcDemo/main.swift <<'SW'
 import Foundation
 import Calculator
 let calc = Calculator()
 print("calc-demo: 2+3=\(calc.add(2,3))")
-// keep running until killed to allow start/stop validation
+// long-running to allow lifecycle validation
 while true { sleep(3600) }
 SW
-
+# Tests
 cat >Tests/CalculatorTests/CalculatorTests.swift <<'SW'
 import XCTest
 @testable import Calculator
@@ -53,34 +51,29 @@ final class CalculatorTests: XCTestCase {
   }
 }
 SW
-
-# start helper: locate project root relative to helper script location (portable)
-cat >start_demo.sh <<'SH'
+# start helper: locates project root relative to this script
+cat >.init/start_demo.sh <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-# change to project root (one level up from this script)
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 PROJECT_ROOT=$(cd "$SCRIPT_DIR"/.. && pwd)
 cd "$PROJECT_ROOT"
 EXEC=".build/debug/calc-demo"
-if [ ! -x "$EXEC" ]; then echo "ERROR: exec not found at $EXEC; build first" >&2; exit 2; fi
+[ -x "$EXEC" ] || { echo "ERROR: exec not found at $EXEC; run swift build" >&2; exit 2; }
 "$EXEC" &
 PID=$!
-# ensure .init exists and write pid for external stop scripts
-mkdir -p "$SCRIPT_DIR"/../.init
-echo "$PID" > "$SCRIPT_DIR"/../.init/demo.pid
+echo "$PID" > "$SCRIPT_DIR/demo.pid"
 SH
-chmod +x start_demo.sh
-
-# also create a stop helper that reads pid from .init/demo.pid
+chmod +x .init/start_demo.sh
+# stop helper
 cat >.init/stop_demo.sh <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 PID_FILE="$(cd "$(dirname "$0")" && pwd)/demo.pid"
 if [ ! -f "$PID_FILE" ]; then echo "ERROR: pid file not found at $PID_FILE" >&2; exit 2; fi
 PID=$(cat "$PID_FILE")
-if kill -0 "$PID" >/dev/null 2>&1; then kill "$PID" && rm -f "$PID_FILE"; else echo "WARNING: process $PID not running" >&2; rm -f "$PID_FILE"; fi
+if kill -0 "$PID" >/dev/null 2>&1; then kill "$PID" && rm -f "$PID_FILE"; else rm -f "$PID_FILE"; fi
 SH
 chmod +x .init/stop_demo.sh
-
+# minimal marker
 echo "scaffold created"
